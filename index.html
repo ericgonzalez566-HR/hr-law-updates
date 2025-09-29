@@ -1,190 +1,80 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>HR Law Updates • NYC / NYS</title>
-  <style>
-    :root {
-      --bg: #0b0c10; --card: #151821; --muted: #8a92a6; --text: #eef1f7;
-      --accent: #7aa2ff; --border: #232635; --radius: 16px;
-    }
-    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);color:var(--text)}
-    header{position:sticky;top:0;z-index:10;backdrop-filter:blur(8px);background:rgba(11,12,16,.7);border-bottom:1px solid var(--border)}
-    .wrap{max-width:900px;margin:0 auto;padding:14px 16px}
-    h1{font-size:20px;margin:0 0 6px}
-    .sub{color:var(--muted);font-size:13px;margin-top:2px}
-    .controls{display:grid;grid-template-columns:1fr minmax(140px,220px) 48px;gap:8px;margin-top:12px}
-    input,select,button{height:44px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);padding:0 12px;font-size:14px}
-    input::placeholder{color:#9aa3b2} button{cursor:pointer}
-    .tabbar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-    .tabbar button{background:var(--card);border:1px solid var(--border);height:40px;border-radius:12px}
-    .tabbar .active{outline:2px solid var(--accent)}
-    main{padding:14px 16px 80px}
-    .list{display:grid;gap:10px}
-    .item{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:grid;gap:8px}
-    .row{display:flex;justify-content:space-between;align-items:start;gap:10px}
-    .title{font-weight:700;font-size:16px;line-height:1.3}
-    .meta{color:var(--muted);font-size:12px}
-    .actions{display:flex;gap:8px;flex-wrap:wrap}
-    .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#10141c;color:var(--text);text-decoration:none;font-size:13px}
-    .btn.primary{border-color:#3557ff44;background:#0e1530}
-    .star{width:40px;height:40px;display:inline-grid;place-items:center;border-radius:12px;border:1px solid var(--border);background:#10141c;cursor:pointer}
-    .star[data-on="true"]{outline:2px solid var(--accent)}
-    footer{position:fixed;bottom:0;left:0;right:0;background:linear-gradient(180deg,transparent,rgba(11,12,16,.85))}
-    .footwrap{max-width:900px;margin:0 auto;padding:16px;display:flex;justify-content:space-between;align-items:center;gap:12px}
-    @media (min-width:700px){.controls{grid-template-columns:1fr 220px 48px}}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>HR Law Updates • DIAGNOSTIC</title>
+<style>
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0b0c10; color:#eef1f7 }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 20px }
+  h1 { margin: 0 0 6px; font-size: 22px }
+  .box { padding: 12px; border: 1px solid #232635; border-radius: 12px; background:#151821; }
+  .row { display:flex; gap:10px; align-items:center; margin: 10px 0 }
+  input, button { height: 40px; border-radius: 8px; border:1px solid #232635; background:#10141c; color:#eef1f7; padding:0 10px }
+  .item { margin-top:10px; padding:12px; border:1px solid #232635; border-radius:12px; background:#151821 }
+  .meta { color:#9aa3b2; font-size: 12px; }
+</style>
 </head>
 <body>
-  <header>
-    <div class="wrap">
-      <h1>NYC / NYS Employment Law Updates</h1>
-      <div id="diag" class="sub" style="margin-top:4px;">Status: loading…</div>
+  <div class="wrap">
+    <h1>NYC / NYS Employment Law Updates — Diagnostic</h1>
+    <p id="status" class="meta">Status: page loaded (waiting for JS)…</p>
 
-      <div class="controls">
-        <input id="q" type="search" placeholder="Search: wage, sick leave, PFL, retaliation, salary transparency…" oninput="render()" />
-        <select id="source">
-          <option value="">All sources</option>
-          <option>NYC Council</option>
-          <option>NYC Rules</option>
-          <option>City Record</option>
-          <option>NYS Register</option>
-          <option>NYS DOL</option>
-          <option>US DOL</option>
-        </select>
-        <button id="clear" title="Clear search">✕</button>
+    <div class="box">
+      <div class="row">
+        <input id="q" type="search" placeholder="Type wage, sick, records…" />
+        <button id="clear">Clear</button>
       </div>
-
-      <div class="tabbar">
-        <button id="tab-feed" class="active">Feed</button>
-        <button id="tab-bookmarks">Bookmarks</button>
-      </div>
+      <p class="meta" id="count">0 items shown</p>
+      <div id="list"></div>
     </div>
-  </header>
 
-  <!-- Quick Links -->
-  <div class="wrap" style="margin-top:10px;">
-    <div class="actions">
-      <a class="btn" href="https://rules.cityofnewyork.us/" target="_blank" rel="noopener">NYC Rules</a>
-      <a class="btn" href="https://council.nyc.gov/legislation/" target="_blank" rel="noopener">NYC Council Legislation</a>
-      <a class="btn" href="https://a856-cityrecord.nyc.gov/" target="_blank" rel="noopener">City Record (CROL)</a>
-      <a class="btn" href="https://dos.ny.gov/state-register" target="_blank" rel="noopener">NYS Register</a>
-      <a class="btn" href="https://dol.ny.gov/" target="_blank" rel="noopener">NYS DOL</a>
-    </div>
+    <p class="meta" style="margin-top:14px">
+      If you can read “JS running ✅” below and the list updates as you type, JS is working.
+    </p>
+    <p id="js-indicator" class="meta">JS NOT running ❌</p>
   </div>
 
-  <main>
-    <div class="wrap">
-      <div class="meta" id="count" style="margin:6px 0 10px;">Loading items…</div>
-      <div id="list" class="list"></div>
-    </div>
-  </main>
-
-  <footer>
-    <div class="footwrap">
-      <div class="sub">Tip: Add this to your home screen to use it like an app.</div>
-      <a class="btn" href="https://github.com/new" target="_blank" rel="noopener">Deploy to GitHub Pages</a>
-    </div>
-  </footer>
-
   <script>
-    // -------- Data (will be replaced by updates.json if present) --------
-    let SEED = [
-      {
-        id: "nycc-1",
-        source: "NYC Council",
-        title: "(Example) Intro XXXX — Amend Earned Safe and Sick Time Act",
-        date: "2025-09-20T14:00:00Z",
-        url: "https://council.nyc.gov/legislation/",
-        tags: ["NYC","Leave","Sick Time"]
-      },
-      {
-        id: "nycr-1",
-        source: "NYC Rules",
-        title: "(Example) Proposed rule on payroll records retention",
-        date: "2025-09-18T13:00:00Z",
-        url: "https://rules.cityofnewyork.us/",
-        tags: ["NYC","Records","Compliance"]
-      }
+    // Tell us if JS runs at all
+    document.getElementById('js-indicator').textContent = 'JS running ✅';
+
+    // Minimal seed data (no external fetch!)
+    let ITEMS = [
+      { id:'1', source:'NYC Council', title:'(Example) Amend Earned Safe and Sick Time Act', date:'2025-09-20', url:'https://council.nyc.gov/legislation/', tags:['NYC','Leave','Sick'] },
+      { id:'2', source:'NYC Rules',    title:'(Example) Proposed rule on payroll records retention', date:'2025-09-18', url:'https://rules.cityofnewyork.us/', tags:['NYC','Records','Compliance'] },
+      { id:'3', source:'City Record',   title:'(Example) Notice of Hearing: DCWP — Fair Workweek', date:'2025-09-16', url:'https://a856-cityrecord.nyc.gov/', tags:['NYC','Scheduling','DCWP'] }
     ];
 
-    // Try to load live data from updates.json (built by your GitHub Action)
-    fetch('./updates.json?cacheBust=' + Date.now())
-      .then(async r => {
-        const $diag = document.getElementById('diag');
-        if (!r.ok) {
-          $diag.textContent = `Status: updates.json not found (${r.status}) — showing built-in examples.`;
-          return null;
-        }
-        const json = await r.json().catch(() => null);
-        if (!json || !Array.isArray(json)) {
-          $diag.textContent = 'Status: updates.json invalid — showing built-in examples.';
-          return null;
-        }
-        SEED = json;
-        $diag.textContent = `Loaded ${SEED.length} items from updates.json`;
-        render();
-        return null;
-      })
-      .catch(() => {
-        const $diag = document.getElementById('diag');
-        $diag.textContent = 'Status: failed to fetch updates.json — showing built-in examples.';
-      });
-
-    // -------- UI / Logic --------
-    const $list = document.getElementById('list');
     const $q = document.getElementById('q');
-    const $source = document.getElementById('source');
     const $clear = document.getElementById('clear');
-    const $tabFeed = document.getElementById('tab-feed');
-    const $tabBookmarks = document.getElementById('tab-bookmarks');
-    const LS_KEY = 'hrlaw.bookmarks.v1';
-    let TAB = 'feed';
+    const $list = document.getElementById('list');
+    const $count = document.getElementById('count');
 
-    function getBookmarks(){
-      try { return new Set(JSON.parse(localStorage.getItem(LS_KEY) || '[]')); }
-      catch(e){ return new Set(); }
-    }
-    function setBookmarks(set){
-      localStorage.setItem(LS_KEY, JSON.stringify(Array.from(set)));
-    }
-    function fmtDate(iso){
-      try{ const d=new Date(iso); return d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});}catch{return iso;}
-    }
-    function escapeHtml(str){
-      const map={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}; 
-      return String(str).replace(/[&<>\"']/g, s => map[s]);
-    }
-    function itemTemplate(item, bookmarks){
-      const on = bookmarks.has(item.id);
-      return `
-        <div class="item" data-id="${item.id}">
-          <div class="row">
-            <div class="title">${escapeHtml(item.title)}</div>
-            <div class="meta">${fmtDate(item.date)}</div>
-          </div>
-          <div class="meta">${escapeHtml(item.source)} · ${escapeHtml(item.tags ? item.tags.join(' • ') : '')}</div>
-          <div class="row">
-            <div class="actions">
-              <a class="btn primary" href="${item.url}" target="_blank" rel="noopener">Open official page</a>
-            </div>
-            <button class="star" aria-label="Bookmark" data-on="${on}" data-id="${item.id}">★</button>
-          </div>
-        </div>`;
-    }
-
-    function render(){
+    function render() {
       const q = ($q.value || '').toLowerCase();
-      const src = $source.value;
-      const bookmarks = getBookmarks();
+      let data = ITEMS.slice();
+      if (q) {
+        data = data.filter(x => {
+          const hay = [x.title, x.source, (x.tags||[]).join(' ')].join(' ').toLowerCase();
+          return hay.includes(q);
+        });
+      }
+      $count.textContent = `${data.length} item${data.length===1?'':'s'} shown`;
+      $list.innerHTML = data.map(x => `
+        <div class="item">
+          <div><strong>${x.title}</strong></div>
+          <div class="meta">${x.source} · ${x.date}</div>
+          <div><a href="${x.url}" target="_blank" rel="noopener">Open official page</a></div>
+        </div>
+      `).join('');
+    }
 
-      let data = SEED.slice().sort((a,b)=> new Date(b.date) - new Date(a.date));
-      if (TAB === 'bookmarks') data = data.filter(x => bookmarks.has(x.id));
-      if (src) data = data.filter(x => x.source === src);
-      if (q) data = data.filter(x => {
-        const hay = [
-          x.title || '',
-          (x.tags || []).join(' '),
-          x.source || ''
-        ].join('
+    $q.addEventListener('input', render);
+    $clear.addEventListener('click', () => { $q.value=''; render(); });
+
+    // initial paint
+    render();
+  </script>
+</body>
+</html>
