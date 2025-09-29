@@ -1,80 +1,98 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>HR Law Updates • DIAGNOSTIC</title>
-<style>
-  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0b0c10; color:#eef1f7 }
-  .wrap { max-width: 800px; margin: 0 auto; padding: 20px }
-  h1 { margin: 0 0 6px; font-size: 22px }
-  .box { padding: 12px; border: 1px solid #232635; border-radius: 12px; background:#151821; }
-  .row { display:flex; gap:10px; align-items:center; margin: 10px 0 }
-  input, button { height: 40px; border-radius: 8px; border:1px solid #232635; background:#10141c; color:#eef1f7; padding:0 10px }
-  .item { margin-top:10px; padding:12px; border:1px solid #232635; border-radius:12px; background:#151821 }
-  .meta { color:#9aa3b2; font-size: 12px; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HR Law Updates • NYC / NYS</title>
+  <style>
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:#0b0c10; color:#eef1f7 }
+    .wrap{max-width:900px;margin:0 auto;padding:16px}
+    h1{margin:0;font-size:22px}
+    .sub{color:#9aa3b2;font-size:13px;margin-top:4px}
+    input,select,button{height:40px;border-radius:8px;border:1px solid #232635;background:#151821;color:#eef1f7;padding:0 10px}
+    .row{display:flex;gap:8px;margin:10px 0}
+    .item{background:#151821;border:1px solid #232635;border-radius:12px;padding:12px;margin-top:10px}
+    .meta{color:#9aa3b2;font-size:12px}
+    .star{cursor:pointer;float:right}
+  </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>NYC / NYS Employment Law Updates — Diagnostic</h1>
-    <p id="status" class="meta">Status: page loaded (waiting for JS)…</p>
+    <h1>NYC / NYS Employment Law Updates</h1>
+    <p id="diag" class="sub">Status: loading…</p>
 
-    <div class="box">
-      <div class="row">
-        <input id="q" type="search" placeholder="Type wage, sick, records…" />
-        <button id="clear">Clear</button>
-      </div>
-      <p class="meta" id="count">0 items shown</p>
-      <div id="list"></div>
+    <div class="row">
+      <input id="q" type="search" placeholder="Search: wage, sick leave, etc…" />
+      <button id="clear">Clear</button>
     </div>
-
-    <p class="meta" style="margin-top:14px">
-      If you can read “JS running ✅” below and the list updates as you type, JS is working.
-    </p>
-    <p id="js-indicator" class="meta">JS NOT running ❌</p>
+    <p id="count" class="meta">0 items</p>
+    <div id="list"></div>
   </div>
 
   <script>
-    // Tell us if JS runs at all
-    document.getElementById('js-indicator').textContent = 'JS running ✅';
+    // Bookmarks
+    const LS_KEY = 'hrlaw.bookmarks.v1';
+    function getBookmarks(){ try{ return new Set(JSON.parse(localStorage.getItem(LS_KEY)||'[]')); }catch{return new Set();}}
+    function setBookmarks(set){ localStorage.setItem(LS_KEY,JSON.stringify(Array.from(set))); }
 
-    // Minimal seed data (no external fetch!)
-    let ITEMS = [
-      { id:'1', source:'NYC Council', title:'(Example) Amend Earned Safe and Sick Time Act', date:'2025-09-20', url:'https://council.nyc.gov/legislation/', tags:['NYC','Leave','Sick'] },
-      { id:'2', source:'NYC Rules',    title:'(Example) Proposed rule on payroll records retention', date:'2025-09-18', url:'https://rules.cityofnewyork.us/', tags:['NYC','Records','Compliance'] },
-      { id:'3', source:'City Record',   title:'(Example) Notice of Hearing: DCWP — Fair Workweek', date:'2025-09-16', url:'https://a856-cityrecord.nyc.gov/', tags:['NYC','Scheduling','DCWP'] }
+    // Seed examples (fallback)
+    let SEED = [
+      {id:'ex1',source:'NYC Council',title:'(Example) Amend Safe and Sick Time Act',date:'2025-09-20',url:'https://council.nyc.gov/legislation/',tags:['NYC','Leave']},
+      {id:'ex2',source:'NYC Rules',title:'(Example) Proposed payroll record rule',date:'2025-09-18',url:'https://rules.cityofnewyork.us/',tags:['NYC','Records']}
     ];
 
-    const $q = document.getElementById('q');
-    const $clear = document.getElementById('clear');
-    const $list = document.getElementById('list');
-    const $count = document.getElementById('count');
+    // Try to load live updates.json
+    fetch('./updates.json?bust='+Date.now())
+      .then(r => r.ok ? r.json() : null)
+      .then(json=>{
+        const $diag=document.getElementById('diag');
+        if(json && Array.isArray(json)){
+          SEED=json;
+          $diag.textContent=`Loaded ${SEED.length} items from updates.json`;
+        } else {
+          $diag.textContent='Status: using built-in example items';
+        }
+        render();
+      })
+      .catch(()=>{
+        document.getElementById('diag').textContent='Status: fetch failed — using examples';
+        render();
+      });
 
-    function render() {
-      const q = ($q.value || '').toLowerCase();
-      let data = ITEMS.slice();
-      if (q) {
-        data = data.filter(x => {
-          const hay = [x.title, x.source, (x.tags||[]).join(' ')].join(' ').toLowerCase();
-          return hay.includes(q);
-        });
-      }
-      $count.textContent = `${data.length} item${data.length===1?'':'s'} shown`;
-      $list.innerHTML = data.map(x => `
-        <div class="item">
-          <div><strong>${x.title}</strong></div>
+    // Render
+    const $list=document.getElementById('list');
+    const $count=document.getElementById('count');
+    const $q=document.getElementById('q');
+    const $clear=document.getElementById('clear');
+
+    function render(){
+      const q=($q.value||'').toLowerCase();
+      const bookmarks=getBookmarks();
+      let data=SEED.slice().sort((a,b)=>new Date(b.date)-new Date(a.date));
+      if(q) data=data.filter(x=>{
+        const hay=[x.title,(x.tags||[]).join(' '),x.source].join(' ').toLowerCase();
+        return hay.includes(q);
+      });
+      $count.textContent=`${data.length} item${data.length===1?'':'s'} shown`;
+      $list.innerHTML=data.map(x=>{
+        const on=bookmarks.has(x.id);
+        return `<div class="item">
+          <div><strong>${x.title}</strong><span class="star" data-id="${x.id}">${on?'★':'☆'}</span></div>
           <div class="meta">${x.source} · ${x.date}</div>
-          <div><a href="${x.url}" target="_blank" rel="noopener">Open official page</a></div>
-        </div>
-      `).join('');
+          <a href="${x.url}" target="_blank">Open official page</a>
+        </div>`;
+      }).join('');
+      $list.querySelectorAll('.star').forEach(btn=>{
+        btn.onclick=()=>{
+          const id=btn.getAttribute('data-id');const set=getBookmarks();
+          if(set.has(id))set.delete(id);else set.add(id);
+          setBookmarks(set);render();
+        };
+      });
     }
 
-    $q.addEventListener('input', render);
-    $clear.addEventListener('click', () => { $q.value=''; render(); });
-
-    // initial paint
-    render();
+    $q.oninput=render;
+    $clear.onclick=()=>{$q.value='';render();};
   </script>
 </body>
 </html>
