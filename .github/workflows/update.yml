@@ -1,9 +1,9 @@
-name: Build updates.json (curl+jq, resilient)
+name: Build updates.json (curl+jq, no filter)
 
 on:
   schedule:
     - cron: "17 13 * * *"   # daily ~9:17am ET
-  workflow_dispatch: {}
+  workflow_dispatch: {}      # let you run it manually
 
 permissions:
   contents: write
@@ -24,38 +24,24 @@ jobs:
         run: |
           set +e
           echo "Requesting Legistar JSON..."
-          # NOTE: use single quotes to avoid YAML/CI interpreting $ signs
           curl --fail -sS \
             -H 'accept: application/json' \
             'https://webapi.legistar.com/v1/nyc/Matters?$orderby=LastModifiedUtc%20desc&$top=50' \
             -o matters.json
           CURLCODE=$?
           echo "curl exit code: $CURLCODE"
-          echo "First 200 chars of matters.json (if any):"
-          head -c 200 matters.json || true
-          echo
-          # If curl failed or file missing, create empty JSON to keep pipeline alive
           if [ $CURLCODE -ne 0 ] || [ ! -s matters.json ]; then
-            echo "[]"> matters.json
+            echo "[]" > matters.json
           fi
           # Validate JSON; if invalid, replace with []
           jq -e . matters.json >/dev/null 2>&1 || echo "[]" > matters.json
-          echo "Validated matters.json size: $(wc -c < matters.json) bytes"
+          echo "matters.json bytes: $(wc -c < matters.json)"
 
-      - name: Build updates.json from matters.json
+      - name: Build updates.json from matters.json (keep ALL items)
         run: |
           set +e
-          # Build updates.json; if jq fails for any reason, write []
           jq '
-            def lc: ascii_downcase;
-            def keep(m): (
-              [ m.MatterName, m.MatterTitle, m.MatterTypeName, m.MatterStatusName, m.MatterBodyName, m.MatterFile ]
-              | map( ( . // "" ) | lc )
-              | join(" ")
-              | .MatterId       # keep everything (no filtering)
-
-            );
-            [ .[] | select(keep(.)) |
+            [ .[] |
               {
                 id:      ("nycc-" + ( .MatterId | tostring )),
                 source:  "NYC Council",
@@ -67,12 +53,12 @@ jobs:
             ]
           ' matters.json > updates.json
           JQCODE=$?
-          echo "jq build exit code: $JQCODE"
+          echo "jq exit code: $JQCODE"
           if [ $JQCODE -ne 0 ] || [ ! -s updates.json ]; then
             echo "[]" > updates.json
           fi
-          echo "Preview of updates.json:"
-          head -n 40 updates.json || true
+          echo "updates.json preview:"
+          head -n 20 updates.json || true
 
       - name: Commit updates.json if changed
         run: |
@@ -80,7 +66,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add updates.json
-            git commit -m "chore: update updates.json (resilient)"
+            git commit -m "chore: update updates.json (keep ALL NYC Council items)"
             git push
           else
             echo "No changes to commit."
