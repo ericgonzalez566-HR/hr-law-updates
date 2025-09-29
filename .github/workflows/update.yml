@@ -1,28 +1,73 @@
-name: Build updates.json
+name: Build updates.json (curl+jq)
+
 on:
   schedule:
-    - cron: "17 13 * * *"
-  workflow_dispatch: {}
+    - cron: "17 13 * * *"   # daily ~9:17am ET
+  workflow_dispatch: {}      # lets you run it by hand
+
 permissions:
   contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Build updates.json
-        run: node scripts/fetch.js
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Fetch NYC Council (Legistar API) and build updates.json
+        run: |
+          set -e
+          # 1) Pull latest 50 matters
+          curl -sS \
+            -H "accept: application/json" \
+            "https://webapi.legistar.com/v1/nyc/Matters?\$orderby=LastModifiedUtc%20desc&\$top=50" \
+            > matters.json
+
+          # 2) Build a minimal updates.json filtering for employment-related keywords
+          #    We search several fields for any of these words.
+          jq '
+            def lc: ascii_downcase;
+            def keep(m): (
+              [ m.MatterName, m.MatterTitle, m.MatterTypeName, m.MatterStatusName, m.MatterBodyName, m.MatterFile ]
+              | map( ( . // "" ) | lc )
+              | join(" ")
+              | test("employment|labor|wage|salary|sick|safe|leave|retaliation|schedule|overtime")
+            );
+
+            [ .[] | select(keep(.)) |
+              {
+                id:      ("nycc-" + ( .MatterId | tostring )),
+                source:  "NYC Council",
+                title:   ( .MatterTitle // .MatterName // .MatterFile // "NYC Council matter" ),
+                date:    ( .LastModifiedUtc // .MatterIntroDate // now | tostring ),
+                url:     ( .MatterHyperlink // ("https://legistar.council.nyc.gov/LegislationDetail.aspx?ID=" + ( .MatterId | tostring )) ),
+                tags:    ["NYC"]
+              }
+            ]
+          ' matters.json > updates.json
+
+          # 3) If we produced nothing (edge case), make an empty array to keep the site happy
+          if [ ! -s updates.json ]; then
+            echo "[]" > updates.json
+          fi
+
+          # Quick sanity check
+          echo "Sample output:"
+          head -n 30 updates.json || true
+
       - name: Commit updates.json if changed
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add updates.json
-            git commit -m "chore: update updates.json"
+            git commit -m "chore: update updates.json (curl+jq)"
             git push
-          fi
+          else
+            echo "No
