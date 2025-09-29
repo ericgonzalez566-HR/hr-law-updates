@@ -1,34 +1,22 @@
 name: Build updates.json
-
 on:
   schedule:
-    - cron: "17 13 * * *"    # daily ~9:17am ET
+    - cron: "17 13 * * *"
   workflow_dispatch: {}
-
 permissions:
   contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      - name: Verify environment
-        run: |
-          node -v
-          ls -la
-          ls -la scripts || true
-
       - name: Build updates.json
         run: node scripts/fetch.js
-
       - name: Commit updates.json if changed
         run: |
           if [ -n "$(git status --porcelain)" ]; then
