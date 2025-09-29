@@ -1,0 +1,37 @@
+name: Build updates.json
+
+on:
+  schedule:
+    - cron: "17 13 * * *"   # runs daily (adjust later if you want)
+  workflow_dispatch: {}      # lets you run it manually
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        run: npm ci || npm i
+
+      - name: Build updates.json
+        run: node scripts/fetch.js
+
+      - name: Commit updates.json if changed
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add updates.json
+            git commit -m "chore: update updates.json"
+            git push
+          fi
