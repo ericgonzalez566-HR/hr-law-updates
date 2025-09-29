@@ -1,0 +1,8 @@
+{
+  "name": "hr-law-updates",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:updates": "node scripts/fetch.js"
+  }
+}
