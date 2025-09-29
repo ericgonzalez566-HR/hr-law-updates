@@ -1,7 +1,7 @@
-// scripts/fetch.js
-import fs from "node:fs/promises";
+// scripts/fetch.js (CommonJS, zero deps)
+const fs = require("fs/promises");
 
-// simple helpers
+// Helpers
 async function getJson(url) {
   const r = await fetch(url, { headers: { accept: "application/json" } });
   if (!r.ok) throw new Error(`GET ${url} -> ${r.status}`);
@@ -48,24 +48,26 @@ async function pullNYCCouncil() {
     }));
 }
 
-// NYC Rules (simple text scrape)
+// NYC Rules (lightweight text parse)
 async function pullNYCRules() {
   const q = encodeURIComponent("employment OR labor OR wage OR sick OR leave OR retaliation OR schedule");
   const html = await getText(`https://rules.cityofnewyork.us/?s=${q}`);
   const text = stripHtml(html);
-  const chunks = text.split(/(?=Read More|Proposed Rule|Adopted Rule|Notice of Public Hearing)/i).slice(0, 15);
+  const chunks = text
+    .split(/(?=Read More|Proposed Rule|Adopted Rule|Notice of Public Hearing)/i)
+    .slice(0, 15);
 
   return chunks.map((t, i) => item({
     id: `nycr-${Date.now()}-${i}`,
     source: "NYC Rules",
-    title: t.slice(0, 140) + "…",
+    title: (t || "NYC Rules update").slice(0, 140) + "…",
     date: new Date().toISOString(),
     url: "https://rules.cityofnewyork.us/",
     tags: ["NYC","Rules"]
   }));
 }
 
-// City Record
+// City Record (CROL)
 async function pullCityRecord() {
   const html = await getText("https://a856-cityrecord.nyc.gov/");
   const text = stripHtml(html);
@@ -77,7 +79,7 @@ async function pullCityRecord() {
   return lines.map((t, i) => item({
     id: `crol-${Date.now()}-${i}`,
     source: "City Record",
-    title: t.slice(0, 140) + "…",
+    title: (t || "City Record notice").slice(0, 140) + "…",
     date: new Date().toISOString(),
     url: "https://a856-cityrecord.nyc.gov/",
     tags: ["NYC","Notices"]
@@ -96,7 +98,7 @@ async function pullNYSRegister() {
   return lines.map((t, i) => item({
     id: `nysr-${Date.now()}-${i}`,
     source: "NYS Register",
-    title: t.slice(0, 140) + "…",
+    title: (t || "NYS Register item").slice(0, 140) + "…",
     date: new Date().toISOString(),
     url: "https://dos.ny.gov/state-register",
     tags: ["NYS","Rulemaking"]
@@ -115,7 +117,7 @@ async function pullNYSDOL() {
   return lines.map((t, i) => item({
     id: `nysdol-${Date.now()}-${i}`,
     source: "NYS DOL",
-    title: t.slice(0, 140) + "…",
+    title: (t || "NYS DOL update").slice(0, 140) + "…",
     date: new Date().toISOString(),
     url: "https://dol.ny.gov/",
     tags: ["NYS","Guidance"]
@@ -132,21 +134,23 @@ async function pullNYSDOL() {
       ...(await pullNYSDOL()),
     ];
 
-    // de-dupe and sort
+    // de-dupe + sort
     const seen = new Set();
-    const deduped = [];
+    const out = [];
     for (const it of all) {
       const key = `${it.source}::${it.title}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      deduped.push(it);
+      out.push(it);
     }
-    deduped.sort((a,b) => new Date(b.date) - new Date(a.date));
+    out.sort((a,b) => new Date(b.date) - new Date(a.date));
 
-    await fs.writeFile("updates.json", JSON.stringify(deduped, null, 2));
-    console.log(`Wrote updates.json with ${deduped.length} items`);
+    await fs.writeFile("updates.json", JSON.stringify(out, null, 2));
+    console.log(`Wrote updates.json with ${out.length} items`);
   } catch (e) {
-    console.error("Failed to build updates.json:", e);
-    process.exitCode = 1;
+    console.error(e);
+    // Always produce a file so the site doesn't break
+    await fs.writeFile("updates.json", JSON.stringify([], null, 2));
+    process.exit(1);
   }
 })();
