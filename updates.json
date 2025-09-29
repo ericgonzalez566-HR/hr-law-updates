@@ -1,0 +1,26 @@
+[
+  {
+    "id": "2025-09-21-nycc-ess",
+    "source": "NYC Council",
+    "title": "Intro 1234 – Update to Earned Safe and Sick Time (example)",
+    "date": "2025-09-21T10:00:00Z",
+    "url": "https://council.nyc.gov/legislation/",
+    "tags": ["NYC", "Leave", "Sick Time"]
+  },
+  {
+    "id": "2025-09-19-nyc-rules",
+    "source": "NYC Rules",
+    "title": "Proposed rule — Payroll records retention (example)",
+    "date": "2025-09-19T15:00:00Z",
+    "url": "https://rules.cityofnewyork.us/",
+    "tags": ["NYC", "Records", "Compliance"]
+  },
+  {
+    "id": "2025-09-16-crol-dcwp",
+    "source": "City Record",
+    "title": "Notice of Public Hearing: DCWP – Fair Workweek clarifications (example)",
+    "date": "2025-09-16T16:00:00Z",
+    "url": "https://a856-cityrecord.nyc.gov/",
+    "tags": ["NYC", "Scheduling", "DCWP"]
+  }
+]
