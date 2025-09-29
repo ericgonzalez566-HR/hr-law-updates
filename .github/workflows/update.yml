@@ -1,9 +1,9 @@
-name: Build updates.json (curl+jq, no filter)
+name: Build updates.json (Python, no deps)
 
 on:
   schedule:
     - cron: "17 13 * * *"   # daily ~9:17am ET
-  workflow_dispatch: {}      # let you run it manually
+  workflow_dispatch: {}      # run it by hand
 
 permissions:
   contents: write
@@ -15,50 +15,62 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install jq
+      - name: Build updates.json via Python (NYC Council latest 50)
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq
+          python - << 'PY'
+          import json, sys, time, ssl, urllib.request
 
-      - name: Fetch NYC Council (Legistar) -> matters.json
-        run: |
-          set +e
-          echo "Requesting Legistar JSON..."
-          curl --fail -sS \
-            -H 'accept: application/json' \
-            'https://webapi.legistar.com/v1/nyc/Matters?$orderby=LastModifiedUtc%20desc&$top=50' \
-            -o matters.json
-          CURLCODE=$?
-          echo "curl exit code: $CURLCODE"
-          if [ $CURLCODE -ne 0 ] || [ ! -s matters.json ]; then
-            echo "[]" > matters.json
-          fi
-          # Validate JSON; if invalid, replace with []
-          jq -e . matters.json >/dev/null 2>&1 || echo "[]" > matters.json
-          echo "matters.json bytes: $(wc -c < matters.json)"
+          def fetch_json(url):
+            try:
+              ctx = ssl.create_default_context()
+              req = urllib.request.Request(
+                url,
+                headers={
+                  "accept":"application/json",
+                  "user-agent":"hr-law-updates/1.0 (+github actions)"
+                }
+              )
+              with urllib.request.urlopen(req, context=ctx, timeout=40) as r:
+                raw = r.read().decode("utf-8", errors="replace")
+              return json.loads(raw)
+            except Exception as e:
+              print("Fetch error:", e, file=sys.stderr)
+              return []
 
-      - name: Build updates.json from matters.json (keep ALL items)
-        run: |
-          set +e
-          jq '
-            [ .[] |
-              {
-                id:      ("nycc-" + ( .MatterId | tostring )),
-                source:  "NYC Council",
-                title:   ( .MatterTitle // .MatterName // .MatterFile // "NYC Council matter" ),
-                date:    ( .LastModifiedUtc // .MatterIntroDate // now | tostring ),
-                url:     ( .MatterHyperlink // ("https://legistar.council.nyc.gov/LegislationDetail.aspx?ID=" + ( .MatterId | tostring )) ),
-                tags:    ["NYC"]
-              }
-            ]
-          ' matters.json > updates.json
-          JQCODE=$?
-          echo "jq exit code: $JQCODE"
-          if [ $JQCODE -ne 0 ] || [ ! -s updates.json ]; then
-            echo "[]" > updates.json
-          fi
-          echo "updates.json preview:"
-          head -n 20 updates.json || true
+          # Pull most-recent 50 council matters
+          url = "https://webapi.legistar.com/v1/nyc/Matters?$orderby=LastModifiedUtc%20desc&$top=50"
+          data = fetch_json(url)
+          if not isinstance(data, list):
+            data = []
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          out = []
+          for m in data:
+            try:
+              mid   = m.get("MatterId")
+              title = m.get("MatterTitle") or m.get("MatterName") or m.get("MatterFile") or "NYC Council matter"
+              date  = m.get("LastModifiedUtc") or m.get("MatterIntroDate") or now
+              link  = m.get("MatterHyperlink") or f"https://legistar.council.nyc.gov/LegislationDetail.aspx?ID={mid}"
+              out.append({
+                "id":    f"nycc-{mid}",
+                "source":"NYC Council",
+                "title": title,
+                "date":  date,
+                "url":   link,
+                "tags":  ["NYC"]
+              })
+            except Exception:
+              pass
+
+          try:
+            with open("updates.json","w", encoding="utf-8") as f:
+              json.dump(out, f, indent=2)
+            print("Wrote updates.json with", len(out), "items")
+          except Exception as e:
+            print("Write error:", e, file=sys.stderr)
+            with open("updates.json","w", encoding="utf-8") as f:
+              json.dump([], f)
+          PY
 
       - name: Commit updates.json if changed
         run: |
@@ -66,7 +78,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add updates.json
-            git commit -m "chore: update updates.json (keep ALL NYC Council items)"
+            git commit -m "chore: update updates.json (python workflow)"
             git push
           else
             echo "No changes to commit."
