@@ -36,6 +36,7 @@
     <div class="row">
       <input id="q" type="search" placeholder="Search: wage, sick leave, PFL, retaliation, salary transparency…" />
       <button id="clear">Clear</button>
+      <a id="openjson" class="quick" href="#" target="_blank" rel="noopener" style="margin-left:auto;">Open updates.json</a>
     </div>
 
     <p id="count" class="meta">0 items</p>
@@ -43,24 +44,31 @@
   </div>
 
   <script>
-    // ---- Bookmarks helpers ----
+    // ---- Bookmarks ----
     const LS_KEY = 'hrlaw.bookmarks.v1';
     function getBookmarks(){ try{ return new Set(JSON.parse(localStorage.getItem(LS_KEY)||'[]')); }catch{return new Set();}}
     function setBookmarks(set){ localStorage.setItem(LS_KEY,JSON.stringify(Array.from(set))); }
 
-    // ---- Example fallback (shown immediately) ----
+    // ---- Example fallback (renders immediately) ----
     let SEED = [
       {id:'ex1',source:'NYC Council',title:'(Example) Amend Safe and Sick Time Act',date:'2025-09-20',url:'https://council.nyc.gov/legislation/',tags:['NYC','Leave']},
       {id:'ex2',source:'NYC Rules',title:'(Example) Proposed payroll record rule',date:'2025-09-18',url:'https://rules.cityofnewyork.us/',tags:['NYC','Records']}
     ];
 
-    // ---- Render UI ----
+    // ---- DOM ----
     const $list=document.getElementById('list');
     const $count=document.getElementById('count');
     const $q=document.getElementById('q');
     const $clear=document.getElementById('clear');
     const $diag=document.getElementById('diag');
+    const $openjson=document.getElementById('openjson');
 
+    // Build absolute path for GitHub Pages project sites
+    const PROJECT_PATH = '/hr-law-updates'; // <<< your repo name
+    const ABS_URL = PROJECT_PATH + '/updates.json';
+    const REL_URL = './updates.json';
+
+    // Helper: render
     function render(){
       const q=($q.value||'').toLowerCase();
       const bookmarks=getBookmarks();
@@ -87,37 +95,50 @@
       });
     }
 
-    // Always render immediately so the page never looks stuck
+    // Initial paint
     render();
 
-    // ---- Safe fetch with timeout (updates.json) ----
-    (function loadUpdates(){
-      const bust = Date.now();
-      const url = './updates.json?bust=' + bust + (location.search.includes('nocache') ? '&nocache=1' : '');
+    // ---- Safe fetch with dual paths + timeout ----
+    async function fetchWithTimeout(url, ms=12000){
       const ctrl = new AbortController();
-      const to = setTimeout(()=>ctrl.abort(), 12000); // 12s timeout
+      const tout = setTimeout(()=>ctrl.abort(), ms);
+      try {
+        const r = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+        if (!r.ok) return { ok:false, status:r.status, data:null };
+        const data = await r.json().catch(()=>null);
+        return { ok:true, status:r.status, data };
+      } catch (e) {
+        return { ok:false, status:'ERR', data:null, err:e && e.name || 'error' };
+      } finally { clearTimeout(tout); }
+    }
 
-      fetch(url, { signal: ctrl.signal })
-        .then(r => r.ok ? r.json() : null)
-        .then(json=>{
-          clearTimeout(to);
-          if(json && Array.isArray(json)){
-            SEED = json;
-            $diag.innerHTML = `<span class="ok">Loaded ${SEED.length} items from updates.json</span>`;
-            render();
-          } else if (json === null) {
-            $diag.innerHTML = `<span class="err">updates.json not found — showing examples</span>`;
-          } else {
-            $diag.innerHTML = `<span class="err">updates.json invalid — showing examples</span>`;
-          }
-        })
-        .catch(err=>{
-          clearTimeout(to);
-          $diag.innerHTML = `<span class="err">Fetch failed (${err && err.name || 'error'}) — showing examples</span>`;
-        });
-    })();
+    async function tryLoad(){
+      $diag.textContent = 'Status: checking for updates.json (absolute path)…';
+      $openjson.href = ABS_URL;
+      let res = await fetchWithTimeout(ABS_URL + '?bust=' + Date.now());
+      if (res.ok && Array.isArray(res.data)) {
+        SEED = res.data;
+        $diag.innerHTML = `<span class="ok">Loaded ${SEED.length} items from ${ABS_URL}</span>`;
+        render();
+        return;
+      }
+      // Try relative
+      $diag.textContent = 'Status: checking for updates.json (relative path)…';
+      $openjson.href = REL_URL;
+      res = await fetchWithTimeout(REL_URL + '?bust=' + Date.now());
+      if (res.ok && Array.isArray(res.data)) {
+        SEED = res.data;
+        $diag.innerHTML = `<span class="ok">Loaded ${SEED.length} items from ${REL_URL}</span>`;
+        render();
+        return;
+      }
+      // Show reason
+      $diag.innerHTML = `<span class="err">Could not load updates.json (tried ${ABS_URL} and ${REL_URL}).</span>`;
+    }
 
-    // ---- Search events ----
+    tryLoad();
+
+    // Search events
     $q.addEventListener('input', render);
     $clear.addEventListener('click', ()=>{ $q.value=''; render(); });
   </script>
