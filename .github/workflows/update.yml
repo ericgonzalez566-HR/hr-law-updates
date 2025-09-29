@@ -52,7 +52,8 @@ jobs:
               [ m.MatterName, m.MatterTitle, m.MatterTypeName, m.MatterStatusName, m.MatterBodyName, m.MatterFile ]
               | map( ( . // "" ) | lc )
               | join(" ")
-              | test("employment|labor|wage|salary|sick|safe|leave|retaliation|schedule|overtime")
+              | .MatterId       # keep everything (no filtering)
+
             );
             [ .[] | select(keep(.)) |
               {
