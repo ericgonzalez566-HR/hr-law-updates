@@ -38,4 +38,88 @@
       <button id="clear">Clear</button>
     </div>
 
-    <p id="count" class="meta">0 i
+    <p id="count" class="meta">0 items</p>
+    <div id="list"></div>
+  </div>
+
+  <script>
+    // ---- Bookmarks helpers ----
+    const LS_KEY = 'hrlaw.bookmarks.v1';
+    function getBookmarks(){ try{ return new Set(JSON.parse(localStorage.getItem(LS_KEY)||'[]')); }catch{return new Set();}}
+    function setBookmarks(set){ localStorage.setItem(LS_KEY,JSON.stringify(Array.from(set))); }
+
+    // ---- Example fallback (shown immediately) ----
+    let SEED = [
+      {id:'ex1',source:'NYC Council',title:'(Example) Amend Safe and Sick Time Act',date:'2025-09-20',url:'https://council.nyc.gov/legislation/',tags:['NYC','Leave']},
+      {id:'ex2',source:'NYC Rules',title:'(Example) Proposed payroll record rule',date:'2025-09-18',url:'https://rules.cityofnewyork.us/',tags:['NYC','Records']}
+    ];
+
+    // ---- Render UI ----
+    const $list=document.getElementById('list');
+    const $count=document.getElementById('count');
+    const $q=document.getElementById('q');
+    const $clear=document.getElementById('clear');
+    const $diag=document.getElementById('diag');
+
+    function render(){
+      const q=($q.value||'').toLowerCase();
+      const bookmarks=getBookmarks();
+      let data=SEED.slice().sort((a,b)=>new Date(b.date)-new Date(a.date));
+      if(q) data=data.filter(x=>{
+        const hay=[x.title,(x.tags||[]).join(' '),x.source].join(' ').toLowerCase();
+        return hay.includes(q);
+      });
+      $count.textContent=`${data.length} item${data.length===1?'':'s'} shown`;
+      $list.innerHTML=data.map(x=>{
+        const on=bookmarks.has(x.id);
+        return `<div class="item">
+          <div><strong>${x.title}</strong><span class="star" data-id="${x.id}">${on?'★':'☆'}</span></div>
+          <div class="meta">${x.source} · ${x.date}</div>
+          <a href="${x.url}" target="_blank" rel="noopener">Open official page</a>
+        </div>`;
+      }).join('');
+      $list.querySelectorAll('.star').forEach(btn=>{
+        btn.onclick=()=>{
+          const id=btn.getAttribute('data-id');const set=getBookmarks();
+          if(set.has(id))set.delete(id);else set.add(id);
+          setBookmarks(set);render();
+        };
+      });
+    }
+
+    // Always render immediately so the page never looks stuck
+    render();
+
+    // ---- Safe fetch with timeout (updates.json) ----
+    (function loadUpdates(){
+      const bust = Date.now();
+      const url = './updates.json?bust=' + bust + (location.search.includes('nocache') ? '&nocache=1' : '');
+      const ctrl = new AbortController();
+      const to = setTimeout(()=>ctrl.abort(), 12000); // 12s timeout
+
+      fetch(url, { signal: ctrl.signal })
+        .then(r => r.ok ? r.json() : null)
+        .then(json=>{
+          clearTimeout(to);
+          if(json && Array.isArray(json)){
+            SEED = json;
+            $diag.innerHTML = `<span class="ok">Loaded ${SEED.length} items from updates.json</span>`;
+            render();
+          } else if (json === null) {
+            $diag.innerHTML = `<span class="err">updates.json not found — showing examples</span>`;
+          } else {
+            $diag.innerHTML = `<span class="err">updates.json invalid — showing examples</span>`;
+          }
+        })
+        .catch(err=>{
+          clearTimeout(to);
+          $diag.innerHTML = `<span class="err">Fetch failed (${err && err.name || 'error'}) — showing examples</span>`;
+        });
+    })();
+
+    // ---- Search events ----
+    $q.addEventListener('input', render);
+    $clear.addEventListener('click', ()=>{ $q.value=''; render(); });
+  </script>
+</body>
+</html>
