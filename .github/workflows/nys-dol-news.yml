@@ -1,0 +1,110 @@
+name: Update updates.json (NYS DOL News only)
+
+on:
+  schedule:
+    - cron: "23 13 * * *"   # daily ~9:23am ET (different minute than your other job)
+  workflow_dispatch: {}      # allows manual runs
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pull NYS DOL News and merge into updates.json
+        run: |
+          python - << 'PY'
+          import json, re, ssl, sys, time, os, html, urllib.parse, urllib.request, pathlib
+
+          UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36")
+          NOW = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          os.makedirs("debug", exist_ok=True)
+
+          def fetch_text(url, timeout=40):
+            try:
+              ctx = ssl.create_default_context()
+              req = urllib.request.Request(url, headers={"user-agent": UA})
+              with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
+                return r.read().decode("utf-8", errors="replace")
+            except Exception as e:
+              print("[fetch_text ERROR]", e, file=sys.stderr)
+              return ""
+
+          def strip_tags(s):
+            s = re.sub(r"<script[\\s\\S]*?</script>", " ", s, flags=re.I)
+            s = re.sub(r"<style[\\s\\S]*?</style>", " ", s, flags=re.I)
+            s = re.sub(r"<[^>]+>", " ", s)
+            return re.sub(r"\\s+", " ", html.unescape(s)).strip()
+
+          def pull_nys_dol_news():
+            base = "https://dol.ny.gov/news"
+            html_text = fetch_text(base)
+            open("debug/nys_dol_only_raw.html","w",encoding="utf-8").write(html_text[:30000])
+            out = []
+            # Grab anchors like /news/some-article
+            for m in re.finditer(r'<a[^>]+href="(/news/[^"#]+)"[^>]*>([\\s\\S]{8,180}?)</a>', html_text, flags=re.I):
+              href = urllib.parse.urljoin("https://dol.ny.gov", m.group(1))
+              label = strip_tags(m.group(2))
+              if len(label) < 12: 
+                continue
+              slug = m.group(1).rstrip("/").split("/")[-1][:40]
+              out.append({
+                "id": f"nysdol-{slug}",
+                "source": "NYS DOL",
+                "title": label[:200],
+                "date": NOW,
+                "url": href,
+                "tags": ["NYS","News"]
+              })
+              if len(out) >= 20: break
+            open("debug/nys_dol_only_preview.json","w",encoding="utf-8").write(json.dumps(out[:5], indent=2))
+            print(f"[NYS DOL] scraped {len(out)} items")
+            return out
+
+          # Load existing updates.json if present
+          existing = []
+          p = pathlib.Path("updates.json")
+          if p.exists():
+            try:
+              existing = json.loads(p.read_text(encoding="utf-8"))
+              if not isinstance(existing, list): existing = []
+            except Exception:
+              existing = []
+
+          # Merge: prefer existing, add new DOL stories by URL if not already present
+          current_urls = { (it.get("url") or "").strip() for it in existing if isinstance(it, dict) }
+          new_items = [it for it in pull_nys_dol_news() if (it["url"] not in current_urls)]
+          combined = new_items + existing  # new first
+          # Dedup by URL (keep first)
+          seen = set(); dedup = []
+          for it in combined:
+            u = (it.get("url") or "").strip()
+            if not u or u in seen: continue
+            seen.add(u); dedup.append(it)
+          # Optional: cap size so file stays small
+          dedup = dedup[:200]
+
+          # Write updates.json
+          with open("updates.json","w",encoding="utf-8") as f:
+            json.dump(dedup, f, indent=2)
+          print(f"[write] updates.json now has {len(dedup)} items "
+                f"(added {len(new_items)}, kept {len(dedup)-len(new_items)}).")
+          PY
+
+      - name: Commit updates.json if changed
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add updates.json debug/*
+            git commit -m "chore: update updates.json (NYS DOL News)"
+            git push
+          else
+            echo "No changes to commit."
+          fi
