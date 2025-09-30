@@ -1,0 +1,123 @@
+name: Update updates.json (NYC DCWP Press Releases)
+
+on:
+  schedule:
+    - cron: "29 13 * * *"   # daily ~9:29am ET
+  workflow_dispatch: {}      # allow manual runs any time
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pull DCWP press releases and merge into updates.json
+        run: |
+          python - << 'PY'
+          import json, re, ssl, sys, time, os, html, pathlib, urllib.parse, urllib.request
+
+          UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36")
+          NOW = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          os.makedirs("debug", exist_ok=True)
+
+          def fetch_text(url, timeout=40):
+            try:
+              ctx = ssl.create_default_context()
+              req = urllib.request.Request(url, headers={"user-agent": UA})
+              with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
+                return r.read().decode("utf-8", errors="replace")
+            except Exception as e:
+              print("[fetch_text ERROR]", url, e, file=sys.stderr)
+              return ""
+
+          def strip_tags(s):
+            s = re.sub(r"<script[\\s\\S]*?</script>", " ", s, flags=re.I)
+            s = re.sub(r"<style[\\s\\S]*?</style>", " ", s, flags=re.I)
+            s = re.sub(r"<[^>]+>", " ", s)
+            return re.sub(r"\\s+", " ", html.unescape(s)).strip()
+
+          def extract_links(html_text, base):
+            out = []
+            for m in re.finditer(r'<a\\s[^>]*href="([^"]+)"[^>]*>([\\s\\S]*?)</a>', html_text, flags=re.I):
+              href = urllib.parse.urljoin(base, m.group(1).strip())
+              text = strip_tags(m.group(2))
+              if len(text) < 8:
+                continue
+              out.append((href, text))
+            return out
+
+          def pull_dcwp():
+            pages = [
+              "https://www.nyc.gov/site/dcwp/about/press-releases.page",   # new DCWP path
+              "https://www.nyc.gov/site/dca/media/press-releases.page",    # older DCA path still live
+            ]
+            items = []
+            for url in pages:
+              html_text = fetch_text(url)
+              open(f"debug/dcwp_{url.split('/')[-1][:25]}.html","w",encoding="utf-8").write(html_text[:50000])
+              for href, label in extract_links(html_text, url):
+                # keep only DCWP/DCA press/news pages
+                if not ("nyc.gov" in href and ("/dcwp/" in href or "/dca/" in href)):
+                  continue
+                if not ("/press" in href or "/news" in href or "press" in label.lower()):
+                  continue
+                items.append({
+                  "id": f"dcwp-{abs(hash(href))}",
+                  "source": "NYC DCWP",
+                  "title": label[:200],
+                  "date": NOW,
+                  "url": href,
+                  "tags": ["NYC","DCWP","Press"]
+                })
+                if len(items) >= 30:
+                  break
+            print(f"[DCWP] scraped {len(items)} links")
+            return items
+
+          # Load existing updates.json (if any)
+          existing = []
+          p = pathlib.Path("updates.json")
+          if p.exists():
+            try:
+              existing = json.loads(p.read_text(encoding="utf-8"))
+              if not isinstance(existing, list):
+                existing = []
+            except Exception:
+              existing = []
+
+          # Merge new DCWP items by URL (dedupe)
+          current_urls = { (it.get("url") or "").strip() for it in existing if isinstance(it, dict) }
+          fresh = [it for it in pull_dcwp() if (it["url"] not in current_urls)]
+          combined = fresh + existing
+          seen, dedup = set(), []
+          for it in combined:
+            u = (it.get("url") or "").strip()
+            if not u or u in seen: 
+              continue
+            seen.add(u); dedup.append(it)
+
+          # keep the file reasonable
+          dedup = dedup[:250]
+
+          with open("updates.json","w",encoding="utf-8") as f:
+            json.dump(dedup, f, indent=2)
+          print(f"[write] updates.json now has {len(dedup)} items (added {len(fresh)})")
+          PY
+
+      - name: Commit updates.json if changed
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add updates.json debug/*
+            git commit -m "chore: update updates.json (DCWP press releases)"
+            git push
+          else
+            echo "No changes to commit."
+          fi
