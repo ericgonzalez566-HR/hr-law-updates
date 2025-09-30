@@ -14,7 +14,8 @@
     .item{background:#151821;border:1px solid #232635;border-radius:12px;padding:12px;margin-top:10px}
     .meta{color:#9aa3b2;font-size:12px}
     .star{cursor:pointer;float:right}
-    .quick a{display:inline-block;margin-right:8px;margin-bottom:8px;padding:8px 10px;border:1px solid #232635;border-radius:8px;background:#10141c;color:#eef1f7;text-decoration:none;font-size:13px}
+    .btn{display:inline-block;margin-right:8px;margin-bottom:8px;padding:8px 10px;border:1px solid #232635;border-radius:8px;background:#10141c;color:#eef1f7;text-decoration:none;font-size:13px}
+    .pill{display:inline-block;margin-right:6px;margin-bottom:6px;padding:7px 10px;border:1px solid #232635;border-radius:999px;background:#10141c;color:#eef1f7;font-size:12px;cursor:pointer}
     .err{color:#fca5a5}
     .ok{color:#86efac}
   </style>
@@ -25,18 +26,40 @@
     <p id="diag" class="sub">Status: using built-in examples while checking for updates…</p>
 
     <!-- Quick links -->
-    <p class="quick">
-      <a href="https://rules.cityofnewyork.us/" target="_blank" rel="noopener">NYC Rules</a>
-      <a href="https://council.nyc.gov/legislation/" target="_blank" rel="noopener">NYC Council</a>
-      <a href="https://a856-cityrecord.nyc.gov/" target="_blank" rel="noopener">City Record</a>
-      <a href="https://dos.ny.gov/state-register" target="_blank" rel="noopener">NYS Register</a>
-      <a href="https://dol.ny.gov/" target="_blank" rel="noopener">NYS DOL</a>
+    <p>
+      <a class="btn" href="https://rules.cityofnewyork.us/" target="_blank" rel="noopener">NYC Rules</a>
+      <a class="btn" href="https://council.nyc.gov/legislation/" target="_blank" rel="noopener">NYC Council</a>
+      <a class="btn" href="https://a856-cityrecord.nyc.gov/" target="_blank" rel="noopener">City Record</a>
+      <a class="btn" href="https://dos.ny.gov/state-register" target="_blank" rel="noopener">NYS Register</a>
+      <a class="btn" href="https://dol.ny.gov/news" target="_blank" rel="noopener">NYS DOL News</a>
+      <a id="openjson" class="btn" href="./updates.json" target="_blank" rel="noopener">Open updates.json</a>
     </p>
 
+    <!-- Topic chips (one tap fills the search box) -->
+    <p id="chips">
+      <span class="pill" data-q="wage">Wage</span>
+      <span class="pill" data-q="overtime">Overtime</span>
+      <span class="pill" data-q="sick leave">Sick Leave</span>
+      <span class="pill" data-q="safe leave">Safe Leave</span>
+      <span class="pill" data-q="paid family leave">Paid Family Leave</span>
+      <span class="pill" data-q="salary transparency">Salary Transparency</span>
+      <span class="pill" data-q="retaliation">Retaliation</span>
+      <span class="pill" data-q="fair workweek">Fair Workweek</span>
+    </p>
+
+    <!-- Search + “Search these official sites” -->
     <div class="row">
-      <input id="q" type="search" placeholder="Search: wage, sick leave, PFL, retaliation, salary transparency…" />
+      <input id="q" type="search" placeholder="Search: wage, sick leave, salary transparency…" />
       <button id="clear">Clear</button>
-      <a id="openjson" class="quick" href="#" target="_blank" rel="noopener" style="margin-left:auto;">Open updates.json</a>
+    </div>
+
+    <div class="meta" id="site-search" style="margin:6px 0 12px;">
+      Search these official sites for "<span id="qshow"></span>":
+      <a id="s-rules" class="btn" target="_blank" rel="noopener">NYC Rules</a>
+      <a id="s-council" class="btn" target="_blank" rel="noopener">NYC Council</a>
+      <a id="s-cityrecord" class="btn" target="_blank" rel="noopener">City Record</a>
+      <a id="s-nysreg" class="btn" target="_blank" rel="noopener">NYS Register</a>
+      <a id="s-nysdol" class="btn" target="_blank" rel="noopener">NYS DOL</a>
     </div>
 
     <p id="count" class="meta">0 items</p>
@@ -61,14 +84,26 @@
     const $q=document.getElementById('q');
     const $clear=document.getElementById('clear');
     const $diag=document.getElementById('diag');
-    const $openjson=document.getElementById('openjson');
+    const $qshow=document.getElementById('qshow');
 
-    // Build absolute path for GitHub Pages project sites
-    const PROJECT_PATH = '/hr-law-updates'; // <<< your repo name
-    const ABS_URL = PROJECT_PATH + '/updates.json';
-    const REL_URL = './updates.json';
+    // Build Google "site:" searches (works everywhere, no scraping)
+    function buildSiteLink(site, q){
+      const query = (q || '').trim();
+      const base = 'https://www.google.com/search?q=';
+      // e.g., site:rules.cityofnewyork.us sick leave
+      return base + encodeURIComponent(`site:${site} ${query}`);
+    }
+    function updateSearchLinks(){
+      const q = $q.value || '';
+      $qshow.textContent = q || '…';
+      document.getElementById('s-rules').href      = buildSiteLink('rules.cityofnewyork.us', q);
+      document.getElementById('s-council').href    = buildSiteLink('council.nyc.gov', q);
+      document.getElementById('s-cityrecord').href = buildSiteLink('a856-cityrecord.nyc.gov', q);
+      document.getElementById('s-nysreg').href     = buildSiteLink('dos.ny.gov/state-register', q);
+      document.getElementById('s-nysdol').href     = buildSiteLink('dol.ny.gov', q);
+    }
 
-    // Helper: render
+    // Render list
     function render(){
       const q=($q.value||'').toLowerCase();
       const bookmarks=getBookmarks();
@@ -93,54 +128,47 @@
           setBookmarks(set);render();
         };
       });
+      updateSearchLinks();
     }
+
+    // Topic chips
+    document.getElementById('chips').addEventListener('click', e=>{
+      const q=e.target.getAttribute('data-q');
+      if(!q) return;
+      $q.value=q;
+      render();
+    });
+
+    // Try to load live updates.json (non-blocking, with timeout)
+    (function loadUpdates(){
+      const ctrl = new AbortController(); const to=setTimeout(()=>ctrl.abort(), 12000);
+      fetch('./updates.json?bust='+Date.now(), {signal:ctrl.signal, cache:'no-store'})
+        .then(r => r.ok ? r.json() : null)
+        .then(json=>{
+          clearTimeout(to);
+          if(json && Array.isArray(json) && json.length){
+            SEED=json;
+            $diag.innerHTML = `<span class="ok">Loaded ${SEED.length} items from updates.json</span>`;
+          } else if (json && Array.isArray(json)) {
+            $diag.innerHTML = `<span class="ok">Loaded 0 items from updates.json (use site search above)</span>`;
+          } else {
+            $diag.innerHTML = `<span class="err">updates.json not found — showing examples</span>`;
+          }
+          render();
+        })
+        .catch(()=>{
+          clearTimeout(to);
+          $diag.innerHTML = `<span class="err">Fetch failed — showing examples</span>`;
+          render();
+        });
+    })();
+
+    // Events
+    $q.addEventListener('input', ()=>{ render(); });
+    $clear.addEventListener('click', ()=>{ $q.value=''; render(); });
 
     // Initial paint
     render();
-
-    // ---- Safe fetch with dual paths + timeout ----
-    async function fetchWithTimeout(url, ms=12000){
-      const ctrl = new AbortController();
-      const tout = setTimeout(()=>ctrl.abort(), ms);
-      try {
-        const r = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
-        if (!r.ok) return { ok:false, status:r.status, data:null };
-        const data = await r.json().catch(()=>null);
-        return { ok:true, status:r.status, data };
-      } catch (e) {
-        return { ok:false, status:'ERR', data:null, err:e && e.name || 'error' };
-      } finally { clearTimeout(tout); }
-    }
-
-    async function tryLoad(){
-      $diag.textContent = 'Status: checking for updates.json (absolute path)…';
-      $openjson.href = ABS_URL;
-      let res = await fetchWithTimeout(ABS_URL + '?bust=' + Date.now());
-      if (res.ok && Array.isArray(res.data)) {
-        SEED = res.data;
-        $diag.innerHTML = `<span class="ok">Loaded ${SEED.length} items from ${ABS_URL}</span>`;
-        render();
-        return;
-      }
-      // Try relative
-      $diag.textContent = 'Status: checking for updates.json (relative path)…';
-      $openjson.href = REL_URL;
-      res = await fetchWithTimeout(REL_URL + '?bust=' + Date.now());
-      if (res.ok && Array.isArray(res.data)) {
-        SEED = res.data;
-        $diag.innerHTML = `<span class="ok">Loaded ${SEED.length} items from ${REL_URL}</span>`;
-        render();
-        return;
-      }
-      // Show reason
-      $diag.innerHTML = `<span class="err">Could not load updates.json (tried ${ABS_URL} and ${REL_URL}).</span>`;
-    }
-
-    tryLoad();
-
-    // Search events
-    $q.addEventListener('input', render);
-    $clear.addEventListener('click', ()=>{ $q.value=''; render(); });
   </script>
 </body>
 </html>
