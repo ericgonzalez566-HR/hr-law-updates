@@ -1,9 +1,9 @@
-name: Build updates.json (Python, robust multi-source)
+name: Build updates.json (Python, real data + debug)
 
 on:
   schedule:
-    - cron: "17 13 * * *"      # daily ~9:17am ET
-  workflow_dispatch: {}         # run manually any time
+    - cron: "17 13 * * *"   # daily ~9:17am ET
+  workflow_dispatch: {}      # run manually any time
 
 permissions:
   contents: write
@@ -18,12 +18,13 @@ jobs:
       - name: Build updates.json via Python
         run: |
           python - << 'PY'
-          import json, re, ssl, sys, time, urllib.request
+          import json, re, ssl, sys, time, os, urllib.request
 
-          # Use a common browser UA so sites don't block us
           UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36")
+
+          os.makedirs("debug", exist_ok=True)
 
           def fetch_text(url, accept="*/*", timeout=40):
             try:
@@ -40,6 +41,8 @@ jobs:
           def fetch_json(url):
             try:
               raw = fetch_text(url, accept="application/json")
+              with open("debug/nyc_council_raw.json", "w", encoding="utf-8") as f:
+                f.write(raw)
               return json.loads(raw)
             except Exception as e:
               print(f"[fetch_json] ERROR {url}: {e}", file=sys.stderr, flush=True)
@@ -57,19 +60,28 @@ jobs:
 
           # ---------- A) NYC Council (Legistar API) ----------
           def pull_nyc_council():
-            url = "https://webapi.legistar.com/v1/nyc/Matters?$orderby=LastModifiedUtc%20desc&$top=50"
+            # Be explicit about JSON format
+            url = ("https://webapi.legistar.com/v1/nyc/Matters"
+                   "?$orderby=LastModifiedUtc%20desc&$top=50&$format=json")
             data = fetch_json(url)
             out = []
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            if isinstance(data, list):
+            if isinstance(data, list) and data:
               for m in data:
-                mid   = m.get("MatterId")
-                if mid is None:  # skip broken records
+                try:
+                  mid   = m.get("MatterId")
+                  if mid is None:  # skip broken records
+                    continue
+                  title = (m.get("MatterTitle") or m.get("MatterName")
+                           or m.get("MatterFile") or "NYC Council matter")
+                  date  = m.get("LastModifiedUtc") or m.get("MatterIntroDate") or now
+                  link  = m.get("MatterHyperlink") or f"https://legistar.council.nyc.gov/LegislationDetail.aspx?ID={mid}"
+                  out.append(item(f"nycc-{mid}", "NYC Council", title, date, link, ["NYC"]))
+                except Exception:
                   continue
-                title = m.get("MatterTitle") or m.get("MatterName") or m.get("MatterFile") or "NYC Council matter"
-                date  = m.get("LastModifiedUtc") or m.get("MatterIntroDate") or now
-                link  = m.get("MatterHyperlink") or f"https://legistar.council.nyc.gov/LegislationDetail.aspx?ID={mid}"
-                out.append(item(f"nycc-{mid}", "NYC Council", title, date, link, ["NYC"]))
+            # write a slim debug preview so you can inspect results in the repo
+            with open("debug/nyc_council_preview.json","w",encoding="utf-8") as f:
+              json.dump(out[:5], f, indent=2)
             print(f"[NYC Council] {len(out)} items", flush=True)
             return out
 
@@ -78,7 +90,8 @@ jobs:
             html = fetch_text("https://rules.cityofnewyork.us/")
             if not html:
               return []
-            # strip tags -> text, then find common headings
+            with open("debug/nyc_rules_raw.html","w",encoding="utf-8") as f:
+              f.write(html[:20000])  # keep it small
             text = re.sub(r"<[^>]+>", " ", html)
             text = re.sub(r"\s+", " ", text).strip()
             chunks = re.split(r"(Proposed Rule|Adopted Rule|Notice of Public Hearing)", text)
@@ -89,6 +102,8 @@ jobs:
               title = f"{head}: {body[:120]}…"
               out.append(item(f"nycr-{i}-{int(time.time())}", "NYC Rules", title, now,
                               "https://rules.cityofnewyork.us/", ["NYC","Rules"]))
+            with open("debug/nyc_rules_preview.json","w",encoding="utf-8") as f:
+              json.dump(out[:5], f, indent=2)
             print(f"[NYC Rules] {len(out)} items", flush=True)
             return out
 
@@ -97,6 +112,8 @@ jobs:
             html = fetch_text("https://dos.ny.gov/state-register")
             if not html:
               return []
+            with open("debug/nys_register_raw.html","w",encoding="utf-8") as f:
+              f.write(html[:20000])
             text = re.sub(r"<[^>]+>", " ", html)
             lines = [x.strip() for x in re.split(r"[\\n\\.]", text) if x.strip()]
             out, now = [], time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -106,6 +123,8 @@ jobs:
                                 line[:140]+"…", now, "https://dos.ny.gov/state-register",
                                 ["NYS","Rulemaking"]))
                 if len(out) >= 10: break
+            with open("debug/nys_register_preview.json","w",encoding="utf-8") as f:
+              json.dump(out[:5], f, indent=2)
             print(f"[NYS Register] {len(out)} items", flush=True)
             return out
 
@@ -127,14 +146,15 @@ jobs:
 
           # If still empty, keep examples so the site isn’t blank
           if not out:
-            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             out = [
-              item("ex1","NYC Council","(Example) Amend Safe and Sick Time Act","2025-09-20","https://council.nyc.gov/legislation/",["NYC","Leave"]),
-              item("ex2","NYC Rules","(Example) Proposed payroll record rule","2025-09-18","https://rules.cityofnewyork.us/",["NYC","Records"]),
+              {"id":"ex1","source":"NYC Council","title":"(Example) Amend Safe and Sick Time Act",
+               "date":"2025-09-20","url":"https://council.nyc.gov/legislation/","tags":["NYC","Leave"]},
+              {"id":"ex2","source":"NYC Rules","title":"(Example) Proposed payroll record rule",
+               "date":"2025-09-18","url":"https://rules.cityofnewyork.us/","tags":["NYC","Records"]},
             ]
             print("[agg] No live items; wrote examples.", flush=True)
 
-          # Sort newest first (best effort)
+          # Sort (best effort)
           try:
             out.sort(key=lambda x: x.get("date",""), reverse=True)
           except Exception:
@@ -145,13 +165,13 @@ jobs:
           print(f"[write] updates.json with {len(out)} items", flush=True)
           PY
 
-      - name: Commit updates.json if changed
+      - name: Commit updates.json + debug if changed
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add updates.json
-            git commit -m "chore: update updates.json (robust multi-source)"
+            git add updates.json debug/*
+            git commit -m "chore: update updates.json + debug artifacts"
             git push
           else
             echo "No changes to commit."
