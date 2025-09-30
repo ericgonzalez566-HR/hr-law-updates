@@ -1,9 +1,9 @@
-name: Update updates.json (NYC DCWP Press Releases)
+name: Update updates.json (NYC DCWP Press/News — wide match)
 
 on:
   schedule:
     - cron: "29 13 * * *"   # daily ~9:29am ET
-  workflow_dispatch: {}      # allow manual runs any time
+  workflow_dispatch: {}      # run anytime
 
 permissions:
   contents: write
@@ -15,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Pull DCWP press releases and merge into updates.json
+      - name: Pull DCWP press/news and merge into updates.json
         run: |
           python - << 'PY'
           import json, re, ssl, sys, time, os, html, pathlib, urllib.parse, urllib.request
@@ -44,28 +44,36 @@ jobs:
 
           def extract_links(html_text, base):
             out = []
-            for m in re.finditer(r'<a\\s[^>]*href="([^"]+)"[^>]*>([\\s\\S]*?)</a>', html_text, flags=re.I):
-              href = urllib.parse.urljoin(base, m.group(1).strip())
-              text = strip_tags(m.group(2))
-              if len(text) < 8:
+            for m in re.finditer(r'(<a\\s[^>]*href="([^"]+)"[^>]*>)([\\s\\S]*?)</a>', html_text, flags=re.I):
+              tag, href, inner = m.group(1), m.group(2).strip(), m.group(3)
+              href = urllib.parse.urljoin(base, href)
+              text = strip_tags(inner) or re.search(r'aria-label="([^"]+)"', tag or "", flags=re.I)
+              text = text if isinstance(text, str) else (text.group(1) if text else "")
+              text = text.strip()
+              if len(text) < 8: 
                 continue
               out.append((href, text))
             return out
 
           def pull_dcwp():
             pages = [
-              "https://www.nyc.gov/site/dcwp/about/press-releases.page",   # new DCWP path
-              "https://www.nyc.gov/site/dca/media/press-releases.page",    # older DCA path still live
+              "https://www.nyc.gov/site/dcwp/about/press-releases.page",   # DCWP press
+              "https://www.nyc.gov/site/dcwp/about/news.page",             # DCWP news
+              "https://www.nyc.gov/site/dca/media/press-releases.page",    # legacy DCA press
             ]
+            want = re.compile(r"(press|news|enforcement|settlement|laws?|workers?|wage|fair workweek|salary|retaliation)", re.I)
+            keep_path = re.compile(r"/(dcwp|dca)/", re.I)
+
             items = []
             for url in pages:
               html_text = fetch_text(url)
-              open(f"debug/dcwp_{url.split('/')[-1][:25]}.html","w",encoding="utf-8").write(html_text[:50000])
+              open(f"debug/dcwp_{url.split('/')[-2]}_raw.html","w",encoding="utf-8").write(html_text[:60000])
               for href, label in extract_links(html_text, url):
-                # keep only DCWP/DCA press/news pages
-                if not ("nyc.gov" in href and ("/dcwp/" in href or "/dca/" in href)):
+                if "nyc.gov" not in href: 
                   continue
-                if not ("/press" in href or "/news" in href or "press" in label.lower()):
+                if not keep_path.search(href): 
+                  continue
+                if not (("press" in href.lower()) or ("news" in href.lower()) or want.search(label)):
                   continue
                 items.append({
                   "id": f"dcwp-{abs(hash(href))}",
@@ -75,8 +83,9 @@ jobs:
                   "url": href,
                   "tags": ["NYC","DCWP","Press"]
                 })
-                if len(items) >= 30:
+                if len(items) >= 40:
                   break
+            json.dump(items[:8], open("debug/dcwp_preview.json","w",encoding="utf-8"), indent=2)
             print(f"[DCWP] scraped {len(items)} links")
             return items
 
@@ -91,7 +100,7 @@ jobs:
             except Exception:
               existing = []
 
-          # Merge new DCWP items by URL (dedupe)
+          # Merge by URL (dedupe)
           current_urls = { (it.get("url") or "").strip() for it in existing if isinstance(it, dict) }
           fresh = [it for it in pull_dcwp() if (it["url"] not in current_urls)]
           combined = fresh + existing
@@ -102,7 +111,7 @@ jobs:
               continue
             seen.add(u); dedup.append(it)
 
-          # keep the file reasonable
+          # keep file size reasonable
           dedup = dedup[:250]
 
           with open("updates.json","w",encoding="utf-8") as f:
@@ -116,7 +125,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add updates.json debug/*
-            git commit -m "chore: update updates.json (DCWP press releases)"
+            git commit -m "chore: update updates.json (DCWP wide match)"
             git push
           else
             echo "No changes to commit."
