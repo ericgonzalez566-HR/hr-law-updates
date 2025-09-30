@@ -1,9 +1,9 @@
-name: Build updates.json (Python — NYC Rules, City Record, NYS Register, NYS DOL)
+name: Build updates.json (Python — Council site + Rules + City Record + NYS Register + NYS DOL)
 
 on:
   schedule:
-    - cron: "17 13 * * *"     # daily ~9:17am ET
-  workflow_dispatch: {}        # run by hand
+    - cron: "17 13 * * *"   # daily ~9:17am ET
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -18,13 +18,14 @@ jobs:
       - name: Build updates.json via Python
         run: |
           python - << 'PY'
-          import json, re, ssl, sys, time, os, urllib.request
+          import json, re, ssl, sys, time, os, urllib.parse, urllib.request
 
           UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36")
 
           os.makedirs("debug", exist_ok=True)
+          NOW = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
           def fetch_text(url, accept="*/*", timeout=40):
             try:
@@ -38,6 +39,11 @@ jobs:
               print(f"[fetch_text] ERROR {url}: {e}", file=sys.stderr, flush=True)
               return ""
 
+          def clean_text(html):
+            text = re.sub(r"<[^>]+>", " ", html)
+            text = re.sub(r"\s+", " ", text).strip()
+            return text
+
           def item(_id, source, title, date, url, tags=None):
             return {
               "id": _id,
@@ -48,16 +54,41 @@ jobs:
               "tags": (tags or [])
             }
 
-          NOW = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          # ---- A) NYC Council (site HTML) ----
+          def pull_council_site():
+            base = "https://council.nyc.gov"
+            html = fetch_text(base + "/legislation/")
+            if not html: 
+              return []
+            open("debug/nyc_council_site_raw.html","w",encoding="utf-8").write(html[:30000])
 
-          # -------- NYC Rules --------
+            # Get links that live under /legislation/ and look like bills/items
+            out = []
+            # capture anchors with some text inside
+            for m in re.finditer(r'<a[^>]+href="([^"]*?/legislation/[^"?#]+)"[^>]*>([^<]{6,200})</a>', html, re.I):
+              href = m.group(1).strip()
+              title = re.sub(r"\s+", " ", m.group(2)).strip()
+              if not title: 
+                continue
+              # Normalize href
+              if href.startswith("//"): href = "https:" + href
+              if href.startswith("/"): href = urllib.parse.urljoin(base, href)
+              if "/search" in href or "#respond" in href: 
+                continue
+              out.append(item(f"nycc-site-{len(out)}-{int(time.time())}", "NYC Council", title, NOW, href, ["NYC","Council"]))
+              if len(out) >= 25: 
+                break
+
+            json.dump(out[:5], open("debug/nyc_council_site_preview.json","w",encoding="utf-8"), indent=2)
+            print(f"[NYC Council (site)] {len(out)}")
+            return out
+
+          # ---- B) NYC Rules (homepage heuristic) ----
           def pull_nyc_rules():
             html = fetch_text("https://rules.cityofnewyork.us/")
             if not html: return []
-            open("debug/nyc_rules_raw.html","w",encoding="utf-8").write(html[:20000])
-            # crude text split on common headings
-            text = re.sub(r"<[^>]+>", " ", html)
-            text = re.sub(r"\s+", " ", text).strip()
+            open("debug/nyc_rules_raw.html","w",encoding="utf-8").write(html[:30000])
+            text = clean_text(html)
             chunks = re.split(r"(Proposed Rule|Adopted Rule|Notice of Public Hearing)", text)
             out = []
             for i in range(1, min(len(chunks), 30), 2):
@@ -70,33 +101,36 @@ jobs:
             print(f"[NYC Rules] {len(out)}")
             return out
 
-          # -------- City Record (CROL) --------
+          # ---- C) City Record ----
           def pull_city_record():
             html = fetch_text("https://a856-cityrecord.nyc.gov/")
             if not html: return []
-            open("debug/city_record_raw.html","w",encoding="utf-8").write(html[:20000])
-            text = re.sub(r"<[^>]+>", " ", html)
-            lines = [x.strip() for x in re.split(r"[\\n\\.]", text) if x.strip()]
+            open("debug/city_record_raw.html","w",encoding="utf-8").write(html[:30000])
+            text = clean_text(html)
             out = []
-            for line in lines:
+            for line in re.split(r"[\\n\\.]", text):
+              line = line.strip()
+              if not line: 
+                continue
               if re.search(r"(DCWP|DCA|DOL|wage|employment|labor|sick|leave|retaliation|schedule|hearing)", line, re.I):
-                out.append(item(f"crol-{len(out)}-{int(time.time())}", "City Record",
-                                line[:140]+"…", NOW, "https://a856-cityrecord.nyc.gov/",
-                                ["NYC","Notices"]))
+                out.append(item(f"crol-{len(out)}-{int(time.time())}",
+                                "City Record", line[:140]+"…", NOW,
+                                "https://a856-cityrecord.nyc.gov/", ["NYC","Notices"]))
                 if len(out) >= 12: break
             json.dump(out[:5], open("debug/city_record_preview.json","w",encoding="utf-8"), indent=2)
             print(f"[City Record] {len(out)}")
             return out
 
-          # -------- NYS Register --------
+          # ---- D) NYS Register ----
           def pull_nys_register():
             html = fetch_text("https://dos.ny.gov/state-register")
             if not html: return []
-            open("debug/nys_register_raw.html","w",encoding="utf-8").write(html[:20000])
-            text = re.sub(r"<[^>]+>", " ", html)
-            lines = [x.strip() for x in re.split(r"[\\n\\.]", text) if x.strip()]
+            open("debug/nys_register_raw.html","w",encoding="utf-8").write(html[:30000])
+            text = clean_text(html)
             out = []
-            for line in lines:
+            for line in re.split(r"[\\n\\.]", text):
+              line = line.strip()
+              if not line: continue
               if re.search(r"(labor|employment|wage|salary|sick|leave|retaliation|schedule|minimum wage)", line, re.I):
                 out.append(item(f"nysr-{len(out)}-{int(time.time())}", "NYS Register",
                                 line[:140]+"…", NOW, "https://dos.ny.gov/state-register",
@@ -106,14 +140,13 @@ jobs:
             print(f"[NYS Register] {len(out)}")
             return out
 
-          # -------- NYS DOL News --------
+          # ---- E) NYS DOL News ----
           def pull_nys_dol():
             html = fetch_text("https://dol.ny.gov/news")
             if not html: return []
-            open("debug/nys_dol_raw.html","w",encoding="utf-8").write(html[:20000])
+            open("debug/nys_dol_raw.html","w",encoding="utf-8").write(html[:30000])
             out = []
-            # headlines that link to /news/...
-            for m in re.finditer(r'<a[^>]+href="(/news/[^"#]+)"[^>]*>([^<]{10,120})</a>', html, re.I):
+            for m in re.finditer(r'<a[^>]+href="(/news/[^"#]+)"[^>]*>([^<]{8,160})</a>', html, re.I):
               href = "https://dol.ny.gov" + m.group(1)
               title = re.sub(r"\s+", " ", m.group(2)).strip()
               out.append(item(f"nysdol-{len(out)}-{int(time.time())}", "NYS DOL", title, NOW, href, ["NYS","News"]))
@@ -122,15 +155,15 @@ jobs:
             print(f"[NYS DOL] {len(out)}")
             return out
 
-          # -------- Aggregate & write --------
+          # ---- Aggregate ----
           all_items = []
-          for pull in (pull_nyc_rules, pull_city_record, pull_nys_register, pull_nys_dol):
+          for pull in (pull_council_site, pull_nyc_rules, pull_city_record, pull_nys_register, pull_nys_dol):
             try:
               all_items += pull()
             except Exception as e:
               print("[SOURCE ERROR]", pull.__name__, e, file=sys.stderr)
 
-          # De-dup (source,title)
+          # De-dup (source, title)
           seen, out = set(), []
           for it in all_items:
             key = (it["source"], it["title"])
@@ -138,7 +171,6 @@ jobs:
             seen.add(key); out.append(it)
 
           if not out:
-            # keep examples so the site never looks empty
             out = [
               {"id":"ex1","source":"NYC Council","title":"(Example) Amend Safe and Sick Time Act",
                "date":"2025-09-20","url":"https://council.nyc.gov/legislation/","tags":["NYC","Leave"]},
@@ -146,7 +178,6 @@ jobs:
                "date":"2025-09-18","url":"https://rules.cityofnewyork.us/","tags":["NYC","Records"]}
             ]
 
-          # best-effort sort by date string
           try: out.sort(key=lambda x: x.get("date",""), reverse=True)
           except: pass
 
@@ -161,7 +192,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add updates.json debug/*
-            git commit -m "chore: update updates.json (multi-source)"
+            git commit -m "chore: update updates.json (council site + other sources)"
             git push
           else
             echo "No changes to commit."
