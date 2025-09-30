@@ -1,13 +1,24 @@
 [
   {
-    "id": "nycc-site-0-1759204982",
+    "id": "ex1",
     "source": "NYC Council",
-    "title": "Legislative API",
-    "date": "2025-09-30T04:03:01Z",
-    "url": "https://council.nyc.gov/legislation/api/",
+    "title": "(Example) Amend Safe and Sick Time Act",
+    "date": "2025-09-20",
+    "url": "https://council.nyc.gov/legislation/",
     "tags": [
       "NYC",
-      "Council"
+      "Leave"
+    ]
+  },
+  {
+    "id": "ex2",
+    "source": "NYC Rules",
+    "title": "(Example) Proposed payroll record rule",
+    "date": "2025-09-18",
+    "url": "https://rules.cityofnewyork.us/",
+    "tags": [
+      "NYC",
+      "Records"
     ]
   }
 ]
